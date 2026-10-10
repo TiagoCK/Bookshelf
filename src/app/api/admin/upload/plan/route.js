@@ -13,6 +13,7 @@ import {
   safeFileName,
 } from "@/lib/ingest";
 import { createStaging, discard, sweep, writeItem, writePlan } from "@/lib/ingest-staging";
+import { uploadCapability } from "@/lib/uploads";
 
 /**
  * Step one of an upload: work out what pages this file would become.
@@ -34,6 +35,18 @@ export async function POST(request) {
   const user = await getCurrentUser();
   if (!user) return json({ ok: false, message: "Unauthorized." }, 401);
   if (!user.isAdmin) return json({ ok: false, message: "Admins only." }, 403);
+
+  /*
+   * Before the body is touched, and after the checks above.
+   *
+   * Order matters in both directions. A stranger still gets 401 rather than a
+   * tour of what this server can do; and pulling a 100 MB arrayBuffer() into
+   * memory on a host that cannot finish the job is pure waste -- on a
+   * deployment the read fails at 4.5 MB with a platform error that explains
+   * nothing about where to upload instead.
+   */
+  const uploads = await uploadCapability();
+  if (!uploads.enabled) return json({ ok: false, message: uploads.reason }, 503);
 
   await sweep();
 

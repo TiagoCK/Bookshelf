@@ -89,6 +89,88 @@ page so ordering can be checked without reading text back. Nothing reads
 `images/`, so the suite passes on a machine that has never seen the diary. CI
 runs it on Node 22 and 24 with no credentials at all.
 
+## Deploying
+
+Hosted on Vercel's free Hobby tier. **GitHub Pages cannot host this** — every
+route is `force-dynamic` and needs a server for Supabase auth, for minting
+signed Storage URLs and for `src/proxy.js`. A static export would be an empty
+shell.
+
+Import the repository at [vercel.com](https://vercel.com). The Next.js preset is
+detected and no `vercel.json` is needed: functions default to the `iad1` region,
+which is already where the Supabase project lives.
+
+`.vercelignore` keeps `images/`, the generated manifest and `supabase/.temp/`
+out of an upload. A Git-based deploy never sees them — they are gitignored — but
+`vercel` run from the project root uploads the working tree, and that would put
+the scans themselves on a CDN.
+
+Three environment variables, in Production and Preview:
+
+| Variable | Value |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | the project URL |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` |
+| `SUPABASE_SECRET_KEY` | `sb_secret_...`, server only |
+
+**Do not set `SUPABASE_URL`.** `getSupabase()` falls back to the public one, and
+setting both is the only way to trip the mismatch guard in
+`assertPublicUrlMatches()`. **Do not set `DIARY_SOURCE`** — it defaults to
+`supabase`, and `local` would look for scans a deployment does not have.
+
+Nothing needs changing in Supabase. Sign-in is `signInWithPassword`, not OAuth
+or a magic link, so no redirect-URL allowlist is tied to the hostname.
+
+Set the project's Node version to 24 LTS; `engines` asks for 22+ and nothing
+here needs newer.
+
+### What the free tier costs
+
+Almost nothing, for one reason: `/api/scan` answers `302` with a signed Supabase
+URL, so **scan bytes never pass through Vercel**. The 100 GB monthly transfer
+allowance goes on HTML, CSS and JS. Nothing uses `next/image` either, so the
+5,000 monthly image transformations are irrelevant.
+
+What does apply:
+
+- Hobby is **non-commercial personal use only**. Donations are explicitly fine;
+  advertising, affiliate links as the point of the site, or being paid to host
+  it are not.
+- Request *and response* bodies cap at **4.5 MB**, which is what stops the
+  uploader below.
+- Cron jobs run at most **once a day** on Hobby, fired anywhere inside the
+  scheduled hour. Not used here: the keep-alive already runs from GitHub Actions
+  and from launchd.
+- A Hobby project cannot be connected to a repository owned by a GitHub
+  **organisation**. A personal repository is fine.
+
+### Uploading is deliberately local
+
+**A deployment refuses to accept scans.** `src/lib/uploads.js` decides, and both
+upload routes and the upload page ask it. Three things break at once on
+serverless:
+
+- the request body caps at 4.5 MB, against a `MAX_UPLOAD_BYTES` of 100 MB;
+- the plan step stages derived JPEGs in `os.tmpdir()` for the commit step to
+  collect, and a deployment's temp directory is per-instance — the two requests
+  need not reach the same one;
+- `saveMasters()` copies the full-resolution file into `images/`, and the source
+  tree is read-only.
+
+The last one settles it, because it fails *silently*: `saveMasters()` returns 0
+rather than throwing, and what reaches Storage is downscaled to `MAX_WIDTH`. A
+remote upload would therefore leave no full-resolution copy of the scan
+anywhere, and say nothing about it.
+
+The test is whether the working directory is writable rather than which platform
+this is, so a read-only host refuses correctly even with nothing configured.
+`DIARY_UPLOADS=off` forces the refusal and `DIARY_UPLOADS=on` forces the
+attempt; both beat the inference.
+
+Everything else in the admin section works from anywhere, because it is all
+small database writes: creating a volume, **setting its visibility**, reordering
+pages, filling in first lines, changing roles.
+
 ## Signing in
 
 Only to read what is not `public`. A volume marked public needs no account and
