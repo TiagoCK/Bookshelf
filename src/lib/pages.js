@@ -39,7 +39,7 @@ export const DEFAULT_DIARY_ID = 1;
  *   height
  *
  * These are the local file's dimensions, which are not always the database's:
- * a scan wider than 1600px is downscaled on upload, so the published image is
+ * a scan wider than 2400px is downscaled on upload, so the published image is
  * smaller than the master sitting in images/. Local mode serves the master, so
  * it needs the master's numbers.
  *

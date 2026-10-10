@@ -173,7 +173,7 @@ export async function POST(request) {
   }
 
   // Best effort, and after the pages are safely in: keeping images/ complete
-  // matters because what went to Supabase is capped at 1600px, so this is the
+  // matters because what went to Supabase is capped at MAX_WIDTH, so this is the
   // only full resolution copy. A deployment with no writable source tree simply
   // skips it -- that is not a reason to fail an upload that already succeeded.
   const mastersSaved = await saveMasters(stagingId, masters);

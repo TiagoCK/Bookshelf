@@ -574,7 +574,7 @@ the script uses. There is deliberately no second pipeline.
 
 ### What it stores
 
-Pages are JPEG at up to 1600px wide, because these are photographs of paper —
+Pages are JPEG at up to 2400px wide, because these are photographs of paper —
 the content PNG compresses worst. The 14 scans here average 150 KB, so the 1 GB
 free tier holds roughly 6,800 pages; as PNG the same images would be ~13× larger
 in both storage and egress. Nothing compounds the loss: `originals/` keeps the
@@ -593,7 +593,7 @@ Adobe or any other service: the diary only ever reaches your own Supabase.
 but it would mean uploading private pages to a third party, needing credentials,
 and depending on their uptime.)
 
-Each page is rendered so its long edge lands near 1600px, computed per page
+Each page is rendered so its long edge lands near 2400px, computed per page
 rather than at a fixed DPI, to PNG first — lossless, so `analyse()` still does
 exactly one lossy encode. Limits: 100 MB per upload, 200 pages per PDF.
 
@@ -627,7 +627,7 @@ been added, so re-running is safe.
 
 Everything else is derived from the file: page numbers continue from the end of
 the diary, dimensions are measured, EXIF rotation is baked in, and anything
-wider than 1600px is downscaled. Order comes from a numeric-aware filename sort,
+wider than 2400px is downscaled. Order comes from a numeric-aware filename sort,
 so `_10` lands after `_2` rather than before it.
 
 If a scan is guessed wrong — an open spread that happens to be portrait, say —
