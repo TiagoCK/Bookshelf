@@ -75,6 +75,7 @@ Other commands:
 - `npm start` — serve the production build (run `build` first)
 - `npm run add` — preview adding new scans
 - `npm run add -- --commit` — add them
+- `npm run ocr -- --diary=N` — recognise the text on a volume's scans
 
 ## Tests
 
@@ -717,11 +718,101 @@ the folded text and slices the **original** at those offsets. NFD turns `é` int
 two code points and would shift every offset after it, marking the wrong
 letters.
 
+A scan is found by its typed first line **or** by text recognised from the page
+(see below). Both go through the same `matchesQuery()`; recognition added a
+second place to look, not a second rule. A hit from the page body is labelled as
+such, because it is a machine's reading rather than a human's summary.
+
+The viewer's live filter stays first-line-only. It filters pages already in
+memory, and page text is deliberately kept out of that payload.
+
 Matching runs in the app, not in Postgres. `getPages()` already loads every
 row's metadata on every render, so filtering 14 rows is free, and one rule beats
 two that disagree — `ilike` folds case by its own collation and would not match
 the filter running in the browser. **Past a few thousand scans**, move this to
-`ilike` with a `pg_trgm` index and have the viewer's live filter call it.
+`ilike` with a `pg_trgm` index and have the viewer's live filter call it; full
+page text makes that threshold arrive sooner.
+
+## Recognising text
+
+Search only ever matched a **typed** first line, so of 49 scans exactly 2 could
+be found. `npm run ocr` is the supply side of that: it reads each scan and
+stores the text, which search then matches with the same rule as everything
+else.
+
+```bash
+npm run ocr -- --diary=5                  # what it would do, writes nothing
+npm run ocr -- --diary=5 --commit         # recognise with Tesseract and save
+npm run ocr -- --diary=1 --export=<dir>   # write the scans out to transcribe elsewhere
+npm run ocr -- --diary=1 --import=<file>  # save transcriptions made elsewhere
+```
+
+Preview by default and `--commit` to act, the same shape as `npm run add`.
+`--force` redoes pages that already have text.
+
+### Two engines, because handwriting is a different problem
+
+**Tesseract**, via `tesseract.js`, is local, free and private, and it is genuinely
+good at clean print: on a typeset page here it returns the text exactly, at 95%
+confidence. It is close to useless on cursive — and so are the cloud OCR
+services, which published comparisons put at roughly 45–63% on cursive
+narrative. A handwritten volume needs a vision model.
+
+`--export` / `--import` is that second route without this repository needing an
+API key or a new dependency: it writes the scans and a manifest to a directory,
+something that can read handwriting transcribes them, and the text comes back as
+
+```json
+{ "diaryId": 1, "pages": [{ "pageId": 1, "text": "..." }] }
+```
+
+The manifest means a transcriber only ever deals in page numbers; storage keys
+stay on the server. Importing a file whose `diaryId` does not match is refused,
+because every volume numbers its pages from 1 and the mistake would otherwise be
+silent.
+
+`tesseract.js` is a **devDependency**: only `scripts/` imports it, so it never
+reaches the deployed function bundle.
+
+### It reads the published scan, never the original
+
+`originals/` holds the scan as it was *before* redaction. Recognising from there
+would produce text containing exactly the words the censor bars exist to hide,
+and then make them searchable — a leak dressed up as a feature. The script reads
+`storage_key`, the published copy with the bars burned in, which is also the only
+object `/api/scan` will ever sign.
+
+Tested rather than assumed: a page whose scan carries a bar over a name
+recognises as `was Captain Wii`, and searching that name returns nothing.
+
+### Corrections are permanent
+
+Recognised text is editable per scan in **Admin → Page index**, behind a
+disclosure so dozens of pages of text do not bury the first lines. Saving marks
+the row `manual`, and the script skips anything marked `manual` **even with
+`--force`** — so correcting a page is permanent and re-running over a volume is
+always safe.
+
+A missing `first_line` is filled in from the recognised text; one that is
+already there is never overwritten, because a typed line is a person's summary
+of the page and outranks the top line of whatever an engine read.
+
+### Where the text lives, and why not on `pages`
+
+`page_text` is its own table keyed on **`storage_key`**, for two reasons that
+are both about not breaking something that already works:
+
+- `readSupabasePages()` reads with `select("*")` on purpose, so a column on
+  `pages` would be loaded on every render of every page of the reader, forever,
+  for text the reader never shows. A separate table is simply never touched by
+  that query — and nothing in the reader's module graph imports
+  `src/lib/page-text.js`, which is what keeps it that way.
+- `page_id` is rewritten wholesale by a reorder. Text keyed on the number would
+  silently reattach to the wrong scans the first time a volume was reordered;
+  `storage_key` is the identity that survives, as the reorder migration says.
+
+It is cheap. All 49 scans come to roughly 150 kB of text — about the size of one
+scan image — against a 500 MB free-tier database currently holding 11 MB.
 
 ## The scans
 

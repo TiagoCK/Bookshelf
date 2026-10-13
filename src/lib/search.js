@@ -76,6 +76,52 @@ export function coverage(pages) {
 }
 
 /**
+ * Pages whose first line OR recognised text matches.
+ *
+ * The same matchesQuery() as everything else -- this adds a second place to
+ * look, not a second rule. `textByPage` is a Map keyed by contentId, as
+ * getPageText() returns; a page with no entry is simply matched on its first
+ * line, which is what every page did before recognition existed.
+ *
+ * Only the shareable /search page passes a map. The viewer's live filter
+ * deliberately does not: it filters pages already in memory, and page text is
+ * kept out of that payload on purpose.
+ */
+export function searchPagesWithText(pages, textByPage, query) {
+  if (termsOf(query).length === 0) return [];
+  return pages.filter(
+    (page) =>
+      matchesQuery(page.firstLine, query) ||
+      matchesQuery(textByPage?.get(page.contentId)?.text, query)
+  );
+}
+
+/**
+ * A line of recognised text worth showing as the hit.
+ *
+ * Two passes, because terms are ANDed across the whole page but rarely all land
+ * on one line: "melee attack" can match a page where "melee" is a heading and
+ * "attack" is three lines down. The first pass looks for a line carrying the
+ * whole query, which is the best excerpt when it exists; the second settles for
+ * a line carrying any one term, which is still the right part of the page to
+ * show. Null when neither finds anything, and the caller falls back.
+ */
+export function matchingLine(text, query) {
+  const terms = termsOf(query);
+  if (terms.length === 0 || !text) return null;
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const whole = lines.find((line) => matchesQuery(line, query));
+  if (whole) return whole;
+
+  return lines.find((line) => terms.some((term) => fold(line).includes(term))) ?? null;
+}
+
+/**
  * Split text into [{ text, hit }] segments so matches can be marked.
  *
  * Offsets come from the folded text and are applied to the original, which is

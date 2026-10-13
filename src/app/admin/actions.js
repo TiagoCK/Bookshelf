@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/auth";
 import { DIARY_SOURCE } from "@/lib/pages";
 import { normaliseVisibility, prepareDiary } from "@/lib/diary-rules";
 import { getSupabase } from "@/lib/supabase";
+import { clearPageText, setPageText, storageKeyOf } from "@/lib/page-text";
 
 const MAX_FIRST_LINE = 500;
 const ROLES = ["reader", "admin"];
@@ -46,6 +47,48 @@ export async function updateFirstLine(_prevState, formData) {
   if (error) return { ok: false, message: error.message };
 
   revalidatePath("/admin", "layout");
+  return { ok: true, message: "Saved." };
+}
+
+/**
+ * Save a correction to one scan's recognised text.
+ *
+ * Recognition is never right on handwriting, so the text has to be editable --
+ * and an edit has to survive the next run. Writing it with source 'manual' is
+ * what makes that answerable: the script skips anything a human has touched,
+ * so re-running recognition over a volume is always safe.
+ *
+ * Identified by diary and page number, like updateFirstLine, and the storage
+ * key is looked up here. The key is deliberately absent from everything
+ * getPages() hands the browser, and a form field is the browser.
+ */
+export async function updatePageText(_prevState, formData) {
+  await requireAdmin();
+
+  const pageId = Number(formData.get("pageId"));
+  const diaryId = Number(formData.get("diaryId"));
+  if (!Number.isInteger(pageId) || pageId < 1) return { ok: false, message: "Invalid page." };
+  if (!Number.isInteger(diaryId) || diaryId < 1) return { ok: false, message: "Invalid diary." };
+
+  const text = (formData.get("pageText") ?? "").toString().trim();
+
+  try {
+    const storageKey = await storageKeyOf(diaryId, pageId);
+    if (!storageKey) return { ok: false, message: "No such page." };
+
+    if (text === "") {
+      await clearPageText(storageKey);
+      revalidatePath("/admin", "layout");
+      return { ok: true, message: "Text removed." };
+    }
+
+    await setPageText(storageKey, text, "manual");
+  } catch (error) {
+    return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/admin", "layout");
+  revalidatePath("/search");
   return { ok: true, message: "Saved." };
 }
 
