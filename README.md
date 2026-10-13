@@ -184,6 +184,33 @@ added from the deployment is live for everyone immediately. Nothing about it is
 a preview, and the upload page says so — because the natural assumption is the
 opposite.
 
+### Two different body limits
+
+Worth keeping straight, because they are easy to confuse and only one of them is
+Vercel's:
+
+| | Limit | Where it applies |
+|---|---|---|
+| Next's `proxyClientMaxBodySize` | 10 MB, **silently truncating** | everywhere, including locally |
+| Vercel's function request body | 4.5 MB, `413` | the deployment only |
+
+The Next one is the subtler problem. `proxy` buffers every matched request body
+in memory and, past the limit, carries on with a partial body rather than
+failing — so an oversized upload surfaced as `VipsJpeg: premature end of JPEG
+image`, which sends you looking at the file rather than the limit. Measured by
+bisection against `next dev`: 9.32 MB decoded, 10.58 MB did not, and raising
+`proxyClientMaxBodySize` made the identical 10.58 MB file decode.
+
+`src/proxy.js` therefore excludes `/api/admin/upload` from its matcher, so those
+bodies are never buffered. Both routes already do their own `getCurrentUser()`
+and `isAdmin` checks — the proxy is a convenience redirect, not the security
+boundary — and they answer `503` during an outage themselves, which is what the
+proxy was doing for them before.
+
+Everything else in the admin section works from anywhere, because it is all
+small database writes: creating a volume, **setting its visibility**, reordering
+pages, filling in first lines, changing roles.
+
 ## Signing in
 
 Only to read what is not `public`. A volume marked public needs no account and

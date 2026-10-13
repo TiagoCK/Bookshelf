@@ -2,7 +2,7 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 
-import { getCurrentUser } from "@/lib/auth";
+import { getAuthState } from "@/lib/auth";
 import { nextFreePageId } from "@/lib/ingest";
 import {
   discard,
@@ -28,7 +28,11 @@ export const runtime = "nodejs";
  * plan the server wrote, so nothing the browser sends can redirect a write.
  */
 export async function POST(request) {
-  const user = await getCurrentUser();
+  // getAuthState() rather than getCurrentUser(), which flattens "cannot reach
+  // Supabase" and "not signed in" to the same null. They need different answers
+  // now that the proxy no longer separates them for these paths.
+  const { user, outage } = await getAuthState();
+  if (outage) return unavailable();
   if (!user) return json({ ok: false, message: "Unauthorized." }, 401);
   if (!user.isAdmin) return json({ ok: false, message: "Admins only." }, 403);
 
@@ -264,6 +268,22 @@ async function freeName(name) {
     }
   }
   return `${base}-${Date.now()}${ext}`;
+}
+
+/**
+ * 503 for a project that is paused or otherwise unreachable.
+ *
+ * The proxy used to supply this for every /api/ path. These two routes are no
+ * longer matched by it -- see the comment on the matcher in src/proxy.js -- so
+ * they answer it themselves. Without this an outage would arrive as 401, and
+ * "Unauthorized" sends an admin to check their session for a problem that is
+ * not theirs. Retry-After says the honest thing: waiting is the fix.
+ */
+function unavailable() {
+  return Response.json(
+    { ok: false, message: "The diary is temporarily unavailable. Try again in a few minutes." },
+    { status: 503, headers: { "Retry-After": "300", "Cache-Control": "no-store" } }
+  );
 }
 
 function json(body, status = 200) {

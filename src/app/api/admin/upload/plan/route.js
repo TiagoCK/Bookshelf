@@ -1,7 +1,7 @@
 import path from "node:path";
 import sharp from "sharp";
 
-import { getCurrentUser } from "@/lib/auth";
+import { getAuthState } from "@/lib/auth";
 import {
   analyse,
   IMAGE_EXTENSIONS,
@@ -31,7 +31,11 @@ export const runtime = "nodejs";
 export async function POST(request) {
   // Checked here, not only on the page that renders the form. A route is a
   // publicly reachable endpoint of its own.
-  const user = await getCurrentUser();
+  // getAuthState() rather than getCurrentUser(), which flattens "cannot reach
+  // Supabase" and "not signed in" to the same null. They need different answers
+  // now that the proxy no longer separates them for these paths.
+  const { user, outage } = await getAuthState();
+  if (outage) return unavailable();
   if (!user) return json({ ok: false, message: "Unauthorized." }, 401);
   if (!user.isAdmin) return json({ ok: false, message: "Admins only." }, 403);
 
@@ -204,6 +208,22 @@ async function thumbnail(jpeg) {
     .jpeg({ quality: 60 })
     .toBuffer();
   return `data:image/jpeg;base64,${data.toString("base64")}`;
+}
+
+/**
+ * 503 for a project that is paused or otherwise unreachable.
+ *
+ * The proxy used to supply this for every /api/ path. These two routes are no
+ * longer matched by it -- see the comment on the matcher in src/proxy.js -- so
+ * they answer it themselves. Without this an outage would arrive as 401, and
+ * "Unauthorized" sends an admin to check their session for a problem that is
+ * not theirs. Retry-After says the honest thing: waiting is the fix.
+ */
+function unavailable() {
+  return Response.json(
+    { ok: false, message: "The diary is temporarily unavailable. Try again in a few minutes." },
+    { status: 503, headers: { "Retry-After": "300", "Cache-Control": "no-store" } }
+  );
 }
 
 /**

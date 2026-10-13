@@ -144,6 +144,28 @@ function unavailable() {
   });
 }
 
+/*
+ * The upload routes are excluded, and that exclusion is load-bearing.
+ *
+ * Next buffers the body of every matched request in memory so it can be read
+ * both here and in the route, capped by `proxyClientMaxBodySize` -- 10 MB by
+ * default. Past that it does not fail the request; it carries on with a partial
+ * body. So an upload over 10 MB arrived truncated and surfaced as "VipsJpeg:
+ * premature end of JPEG image", which sends you looking at the file rather than
+ * at the limit. Bisected: 9.32 MB decoded, 10.58 MB did not, and raising the
+ * cap made the identical 10.58 MB file decode.
+ *
+ * Raising the cap would have worked too, but it buffers the whole upload twice
+ * -- once here for a proxy that has nothing to say about these paths, once in
+ * the route that actually wants it. Not matching them at all is the honest fix.
+ *
+ * Safe because this file is a convenience redirect and not the security
+ * boundary, as the comment on NEEDS_SESSION says: both routes check
+ * getAuthState() themselves, answer 401 and 403 of their own accord, and now
+ * answer the 503 this file used to give them during an outage.
+ */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: [
+    "/((?!api/admin/upload|_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };
