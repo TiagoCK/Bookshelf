@@ -1,62 +1,76 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { MAX_UPLOAD_BYTES } from "../src/lib/ingest.js";
 import {
+  PLATFORM_MAX_UPLOAD_BYTES,
   UPLOADS_OFF,
-  UPLOADS_READ_ONLY,
-  uploadVerdict,
+  mb,
+  uploadLimits,
 } from "../src/lib/uploads.js";
 
-describe("uploads: the explicit setting wins", () => {
-  it("off refuses even on a writable tree", () => {
-    const verdict = uploadVerdict({ setting: "off", treeWritable: true });
-    assert.equal(verdict.enabled, false);
-    assert.equal(verdict.reason, UPLOADS_OFF);
+/** Vercel's documented maximum request body for a function. */
+const DOCUMENTED_PLATFORM_CAP = 4.5 * 1024 * 1024;
+
+describe("uploads: the ceiling follows the host", () => {
+  it("gives a writable tree the full limit", () => {
+    const limits = uploadLimits({ setting: undefined, treeWritable: true });
+    assert.equal(limits.enabled, true);
+    assert.equal(limits.maxBytes, MAX_UPLOAD_BYTES);
+    assert.equal(limits.ephemeral, false);
   });
 
-  it("on allows even on a read-only tree", () => {
-    // The escape hatch. Someone who sets this means it, and the routes have
-    // nothing else to go on -- so it has to beat the inference, not lose to it.
-    assert.deepEqual(uploadVerdict({ setting: "on", treeWritable: false }), {
-      enabled: true,
-    });
-  });
-});
-
-describe("uploads: inferred from the filesystem", () => {
-  it("allows a writable tree", () => {
-    assert.deepEqual(uploadVerdict({ setting: undefined, treeWritable: true }), {
-      enabled: true,
-    });
+  it("gives a read-only tree the platform limit", () => {
+    const limits = uploadLimits({ setting: undefined, treeWritable: false });
+    assert.equal(limits.enabled, true);
+    assert.equal(limits.maxBytes, PLATFORM_MAX_UPLOAD_BYTES);
+    assert.equal(limits.ephemeral, true);
   });
 
-  it("refuses a read-only tree, which is what a deployment looks like", () => {
-    const verdict = uploadVerdict({ setting: undefined, treeWritable: false });
-    assert.equal(verdict.enabled, false);
-    assert.equal(verdict.reason, UPLOADS_READ_ONLY);
-  });
-
-  it("treats a value that is neither on nor off as unset", () => {
-    // DIARY_UPLOADS="true" or "1" is someone guessing at the vocabulary. The
-    // filesystem is a better answer than reading intent into a typo -- and the
-    // dangerous direction would be to treat it as "on" and let a deployment
-    // accept an upload it cannot finish.
-    for (const setting of ["", "true", "1", "yes", "ON", "OFF"]) {
-      assert.equal(
-        uploadVerdict({ setting, treeWritable: false }).enabled,
-        false,
-        `${JSON.stringify(setting)} should not enable uploads on a read-only tree`
-      );
-    }
+  it("leaves headroom under what the platform actually rejects at", () => {
+    // The point of advertising less than the documented cap: the refusal comes
+    // from us, with somewhere to go, instead of as an opaque 413 after the
+    // whole file has been sent.
+    assert.ok(
+      PLATFORM_MAX_UPLOAD_BYTES < DOCUMENTED_PLATFORM_CAP,
+      `${mb(PLATFORM_MAX_UPLOAD_BYTES)} MB must stay under ${mb(DOCUMENTED_PLATFORM_CAP)} MB`
+    );
+    assert.ok(PLATFORM_MAX_UPLOAD_BYTES < MAX_UPLOAD_BYTES);
   });
 });
 
-describe("uploads: the reasons say where to go instead", () => {
-  it("both name the machine holding the originals", () => {
-    // The point of refusing rather than failing: an admin who reads this should
-    // know what to do next, not just that it did not work.
-    for (const reason of [UPLOADS_OFF, UPLOADS_READ_ONLY]) {
-      assert.match(reason, /machine that holds your originals/);
+describe("uploads: the off switch", () => {
+  it("refuses on a writable tree", () => {
+    const limits = uploadLimits({ setting: "off", treeWritable: true });
+    assert.equal(limits.enabled, false);
+    assert.equal(limits.reason, UPLOADS_OFF);
+  });
+
+  it("refuses on a read-only tree", () => {
+    assert.equal(uploadLimits({ setting: "off", treeWritable: false }).enabled, false);
+  });
+
+  it("is the only value that refuses", () => {
+    // There is deliberately no "on". The smaller ceiling is a property of the
+    // host, and a flag claiming to lift it would only move the failure to the
+    // platform. So anything that is not exactly "off" allows, and the ceiling
+    // still comes from the filesystem.
+    for (const setting of ["", "on", "true", "1", "OFF", "no", undefined]) {
+      const limits = uploadLimits({ setting, treeWritable: false });
+      assert.equal(limits.enabled, true, `${JSON.stringify(setting)} should allow`);
+      assert.equal(limits.maxBytes, PLATFORM_MAX_UPLOAD_BYTES);
     }
+  });
+
+  it("says where to go instead", () => {
+    assert.match(UPLOADS_OFF, /machine that holds your originals/);
+  });
+});
+
+describe("uploads: mb", () => {
+  it("formats one decimal place, so every message agrees", () => {
+    assert.equal(mb(PLATFORM_MAX_UPLOAD_BYTES), "4.0");
+    assert.equal(mb(MAX_UPLOAD_BYTES), "100.0");
+    assert.equal(mb(12458568), "11.9");
   });
 });

@@ -136,40 +136,53 @@ What does apply:
 - Hobby is **non-commercial personal use only**. Donations are explicitly fine;
   advertising, affiliate links as the point of the site, or being paid to host
   it are not.
-- Request *and response* bodies cap at **4.5 MB**, which is what stops the
-  uploader below.
+- Request *and response* bodies cap at **4.5 MB**, which is what sets the
+  upload ceiling below.
 - Cron jobs run at most **once a day** on Hobby, fired anywhere inside the
   scheduled hour. Not used here: the keep-alive already runs from GitHub Actions
   and from launchd.
 - A Hobby project cannot be connected to a repository owned by a GitHub
   **organisation**. A personal repository is fine.
 
-### Uploading is deliberately local
+### Uploading from the deployment
 
-**A deployment refuses to accept scans.** `src/lib/uploads.js` decides, and both
-upload routes and the upload page ask it. Three things break at once on
-serverless:
+Uploads work there, with a smaller ceiling. `src/lib/uploads.js` answers how
+large a request this host accepts, and the routes, the form and the upload page
+all read it:
 
-- the request body caps at 4.5 MB, against a `MAX_UPLOAD_BYTES` of 100 MB;
-- the plan step stages derived JPEGs in `os.tmpdir()` for the commit step to
-  collect, and a deployment's temp directory is per-instance — the two requests
-  need not reach the same one;
-- `saveMasters()` copies the full-resolution file into `images/`, and the source
-  tree is read-only.
+| | Ceiling | How it is detected |
+|---|---|---|
+| A laptop | `MAX_UPLOAD_BYTES`, 100 MB | the working directory is writable |
+| A deployment | `PLATFORM_MAX_UPLOAD_BYTES`, 4 MB | it is not |
 
-The last one settles it, because it fails *silently*: `saveMasters()` returns 0
-rather than throwing, and what reaches Storage is downscaled to `MAX_WIDTH`. A
-remote upload would therefore leave no full-resolution copy of the scan
-anywhere, and say nothing about it.
+4 MB rather than the 4.5 MB Vercel documents, so the refusal comes from us with
+somewhere to go, instead of as an opaque `413 FUNCTION_PAYLOAD_TOO_LARGE` after
+the whole file has been transferred. `UploadForm` checks the size before sending
+a byte, for the same reason.
 
-The test is whether the working directory is writable rather than which platform
-this is, so a read-only host refuses correctly even with nothing configured.
-`DIARY_UPLOADS=off` forces the refusal and `DIARY_UPLOADS=on` forces the
-attempt; both beat the inference.
+The test is whether the tree is writable rather than which platform this is, so
+any read-only host gets the smaller ceiling with nothing configured.
+`DIARY_UPLOADS=off` refuses outright and is the only value read; there is
+deliberately no `on`, because the ceiling is a property of the host and a flag
+claiming to lift it would only move the failure to the platform.
 
-Everything else in the admin section works from anywhere, because it is all
-small database writes: creating a volume, **setting its visibility**, reordering
-pages, filling in first lines, changing roles.
+Two things a deployment cannot promise, both stated on the upload page rather
+than left to be discovered:
+
+- **No full-resolution master.** `saveMasters()` writes into `images/`, which a
+  deployment does not have. Note this is equally true of a clone without an
+  `images/` directory — `saveMasters()` returns 0 rather than throwing — so a
+  deployment loses nothing that a laptop without that directory was keeping.
+- **Staging may not survive.** The plan step leaves derived JPEGs in
+  `os.tmpdir()` for the commit step. Fluid compute shares one instance across
+  invocations so this usually holds; when it does not, the commit route answers
+  `410 That upload has expired. Choose the file again.` A retry, not a loss.
+
+What does **not** change is permanence. A commit writes rows to Postgres and
+objects to Storage in the same Supabase project the local app uses, so a page
+added from the deployment is live for everyone immediately. Nothing about it is
+a preview, and the upload page says so — because the natural assumption is the
+opposite.
 
 ## Signing in
 

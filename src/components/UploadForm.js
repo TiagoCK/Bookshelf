@@ -13,6 +13,16 @@ import { useRouter } from "next/navigation";
  * the guess has to be correctable before it is written. For a forty page PDF
  * that is the difference between a minute of checking and re-adding the lot.
  */
+/**
+ * One decimal place of megabytes.
+ *
+ * Deliberately not imported from lib/uploads.js, which owns the server-side
+ * copy: that module reaches for node:fs and would not survive the trip into a
+ * client bundle. The limit itself is passed down rather than recomputed, so the
+ * number that matters cannot drift.
+ */
+const megabytes = (bytes) => (bytes / 1024 / 1024).toFixed(1);
+
 /** "as page 27" for one page, "as pages 27–31" for a range. */
 function commitLabel(items) {
   const first = items[0]?.start;
@@ -21,7 +31,7 @@ function commitLabel(items) {
   return `Add ${items.length} scan${items.length === 1 ? "" : "s"} as ${span}`;
 }
 
-export default function UploadForm({ lastPage, diaryId, diarySlug }) {
+export default function UploadForm({ lastPage, diaryId, diarySlug, maxBytes }) {
   const router = useRouter();
   const fileRef = useRef(null);
 
@@ -55,6 +65,24 @@ export default function UploadForm({ lastPage, diaryId, diarySlug }) {
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setError("Choose a file first.");
+      return;
+    }
+
+    /*
+     * Refused here, before a single byte goes up.
+     *
+     * The route checks this too and is the authority, but on a host with a
+     * small ceiling the platform rejects the request itself -- after the whole
+     * file has been transferred, with a body we do not control. So the admin
+     * would watch a 40 MB upload complete and then be told nothing useful. The
+     * ceiling arrives as a prop because it is a property of the server this
+     * page was rendered by, not a constant.
+     */
+    if (maxBytes && file.size > maxBytes) {
+      setError(
+        `That file is ${megabytes(file.size)} MB. This server accepts up to ` +
+          `${megabytes(maxBytes)} MB.`
+      );
       return;
     }
 

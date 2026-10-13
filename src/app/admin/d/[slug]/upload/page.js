@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { requireDiary } from "@/lib/diaries";
 import { MAX_WIDTH } from "@/lib/ingest";
 import { getPages } from "@/lib/pages";
-import { hasScansDir, uploadCapability } from "@/lib/uploads";
+import { hasScansDir, mb, uploadCapability } from "@/lib/uploads";
 import { totalPages } from "@/lib/views";
 
 export const dynamic = "force-dynamic";
@@ -13,14 +13,11 @@ export default async function UploadPage({ params }) {
   const { slug } = await params;
   const diary = await requireDiary(slug, admin);
 
-  /*
-   * Asked before the form is rendered, not after it is submitted.
-   *
-   * The routes refuse too -- they are the boundary -- but a form that cannot
-   * work is worse than no form: on a deployment it would fail at 4.5 MB with a
-   * platform error, after the admin had waited for the file to upload.
-   */
+  // What this particular server can take. Asked before the form is rendered so
+  // the ceiling can be stated and enforced in the browser, rather than
+  // discovered after a long upload.
   const uploads = await uploadCapability();
+
   if (!uploads.enabled) {
     return (
       <>
@@ -61,6 +58,42 @@ export default async function UploadPage({ params }) {
         )}
       </p>
 
+      {/*
+        Said before the upload, not after it fails.
+
+        The permanence line looks like it is stating the obvious, and it is here
+        precisely because it is not: the natural assumption about a deployment
+        is that it is a scratch copy. It is not -- this writes to the same
+        Supabase project everything else reads from.
+      */}
+      {uploads.ephemeral && (
+        <div className="admin__note">
+          <p>
+            <strong>Uploading from the deployment, not your laptop.</strong>{" "}
+            Three things follow from that:
+          </p>
+          <ul>
+            <li>
+              Files are limited to <strong>{mb(uploads.maxBytes)} MB</strong>,
+              which is what this host accepts in one request. A long PDF is
+              almost certainly over it — add those from the machine that holds
+              your originals.
+            </li>
+            <li>
+              Pages added here are <strong>permanent and public straight
+              away</strong>, exactly as if you had added them locally. They go
+              to the same database and the same storage; nothing here is a
+              preview.
+            </li>
+            <li>
+              The two steps are separate requests. If they land on different
+              instances you will be asked to choose the file again — retry, and
+              nothing is lost or half-written.
+            </li>
+          </ul>
+        </div>
+      )}
+
       {!keepsMasters && (
         <p className="admin__note">
           <strong>No <code>images/</code> directory here.</strong> The upload
@@ -70,7 +103,12 @@ export default async function UploadPage({ params }) {
         </p>
       )}
 
-      <UploadForm lastPage={totalPages(pages)} diaryId={diary.id} diarySlug={diary.slug} />
+      <UploadForm
+        lastPage={totalPages(pages)}
+        diaryId={diary.id}
+        diarySlug={diary.slug}
+        maxBytes={uploads.maxBytes}
+      />
     </>
   );
 }
