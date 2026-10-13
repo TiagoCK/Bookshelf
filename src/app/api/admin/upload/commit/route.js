@@ -13,8 +13,8 @@ import {
 } from "@/lib/ingest-staging";
 import { storageKeyFor } from "@/lib/pages";
 import { BUCKET, getSupabase } from "@/lib/supabase";
+import { SCANS_DIR, uploadCapability } from "@/lib/uploads";
 
-const SCANS_DIR = path.join(process.cwd(), "images");
 const MANIFEST_FILE = path.join(process.cwd(), "src", "lib", "manifest.generated.json");
 
 export const dynamic = "force-dynamic";
@@ -31,6 +31,12 @@ export async function POST(request) {
   const user = await getCurrentUser();
   if (!user) return json({ ok: false, message: "Unauthorized." }, 401);
   if (!user.isAdmin) return json({ ok: false, message: "Admins only." }, 403);
+
+  // Checked here as well as in the plan step. A commit is a separate request to
+  // a separate endpoint, and nothing says the plan it names was made by a
+  // server that could do this one.
+  const uploads = await uploadCapability();
+  if (!uploads.enabled) return json({ ok: false, message: uploads.reason }, 503);
 
   let body;
   try {
@@ -167,7 +173,7 @@ export async function POST(request) {
   }
 
   // Best effort, and after the pages are safely in: keeping images/ complete
-  // matters because what went to Supabase is capped at 1600px, so this is the
+  // matters because what went to Supabase is capped at MAX_WIDTH, so this is the
   // only full resolution copy. A deployment with no writable source tree simply
   // skips it -- that is not a reason to fail an upload that already succeeded.
   const mastersSaved = await saveMasters(stagingId, masters);

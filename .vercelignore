@@ -1,0 +1,15 @@
+# Never upload the scans.
+#
+# A Git-based deploy cannot see any of this -- it is all gitignored -- so this
+# file is for the other path: `vercel` run from the project root uploads the
+# working tree as it stands. That would put the diary's images, and the index
+# that maps them, onto a CDN. The mistake is one command long and deleting the
+# deployment afterwards does not unsend the bytes.
+images/
+src/lib/manifest.generated.json
+
+# Credentials, and the CLI's record of which project is linked.
+.env
+.env*.local
+supabase/.temp/
+supabase/.branches/
