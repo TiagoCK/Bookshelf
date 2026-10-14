@@ -1435,6 +1435,67 @@ code {
   margin: 0.25rem 0 0 9.25rem;
 }
 
+/* Recognised text on the admin page index.
+   Closed by default: a volume is dozens of scans and a page of recognised text
+   runs to thousands of characters, so expanding them all would bury the first
+   lines this page is for. Indented to the same column as .admin__match so the
+   summary line reads as belonging to the row above it. */
+.admin__text {
+  margin: 0.25rem 0 0 9.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.admin__text summary {
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+
+/* Which engine produced it, or that a human has corrected it. */
+.admin__source {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+
+/* .admin__row form is a horizontal row, which is right for the one-line first
+   line and wrong for a ten-row textarea. */
+.admin__row .admin__textform {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.admin__textform textarea {
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--foreground);
+  resize: vertical;
+}
+
+.admin__textform button {
+  align-self: flex-start;
+}
+
+/* Marks a search hit that came from recognised text rather than from a typed
+   first line -- the difference between a human's summary and a machine's
+   reading, which the reader should be able to tell apart. */
+.searchpage__from {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
 /* The notes now carry inline links (page index, reader). Nothing sets a global
    anchor colour, so without this they render browser-default blue against a
    warm paper palette. */

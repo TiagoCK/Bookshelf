@@ -1,19 +1,18 @@
 import path from "node:path";
 import sharp from "sharp";
 
-import { getCurrentUser } from "@/lib/auth";
+import { getAuthState } from "@/lib/auth";
 import {
   analyse,
   IMAGE_EXTENSIONS,
   IMAGE_MIME,
-  MAX_UPLOAD_BYTES,
   MAX_PDF_PAGES,
   PDF_MIME,
   rasterisePdf,
   safeFileName,
 } from "@/lib/ingest";
 import { createStaging, discard, sweep, writeItem, writePlan } from "@/lib/ingest-staging";
-import { uploadCapability } from "@/lib/uploads";
+import { mb, uploadCapability } from "@/lib/uploads";
 
 /**
  * Step one of an upload: work out what pages this file would become.
@@ -32,7 +31,11 @@ export const runtime = "nodejs";
 export async function POST(request) {
   // Checked here, not only on the page that renders the form. A route is a
   // publicly reachable endpoint of its own.
-  const user = await getCurrentUser();
+  // getAuthState() rather than getCurrentUser(), which flattens "cannot reach
+  // Supabase" and "not signed in" to the same null. They need different answers
+  // now that the proxy no longer separates them for these paths.
+  const { user, outage } = await getAuthState();
+  if (outage) return unavailable();
   if (!user) return json({ ok: false, message: "Unauthorized." }, 401);
   if (!user.isAdmin) return json({ ok: false, message: "Admins only." }, 403);
 
@@ -60,15 +63,7 @@ export async function POST(request) {
    * directly has no such ceiling, so the only limit is the explicit one below.
    */
   const declared = Number(request.headers.get("content-length") ?? 0);
-  if (declared > MAX_UPLOAD_BYTES) {
-    return json(
-      {
-        ok: false,
-        message: `That file is ${mb(declared)} MB. The limit is ${mb(MAX_UPLOAD_BYTES)} MB.`,
-      },
-      413
-    );
-  }
+  if (declared > uploads.maxBytes) return tooLarge(declared, uploads);
 
   // decodeURIComponent throws on a malformed escape, and this header comes from
   // the caller. Falling back to the raw value keeps a hand-made request with a
@@ -92,17 +87,9 @@ export async function POST(request) {
   }
 
   if (buffer.byteLength === 0) return json({ ok: false, message: "That file is empty." }, 400);
-  if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-    return json(
-      {
-        ok: false,
-        message: `That file is ${mb(buffer.byteLength)} MB. The limit is ${mb(
-          MAX_UPLOAD_BYTES
-        )} MB.`,
-      },
-      413
-    );
-  }
+  // Checked again against what actually arrived: content-length is the
+  // caller's claim, and a hand-made request can understate it.
+  if (buffer.byteLength > uploads.maxBytes) return tooLarge(buffer.byteLength, uploads);
 
   const extension = path.extname(originalName).toLowerCase();
   const isPdf = contentType === PDF_MIME || extension === ".pdf";
@@ -223,7 +210,44 @@ async function thumbnail(jpeg) {
   return `data:image/jpeg;base64,${data.toString("base64")}`;
 }
 
-const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
+/**
+ * 503 for a project that is paused or otherwise unreachable.
+ *
+ * The proxy used to supply this for every /api/ path. These two routes are no
+ * longer matched by it -- see the comment on the matcher in src/proxy.js -- so
+ * they answer it themselves. Without this an outage would arrive as 401, and
+ * "Unauthorized" sends an admin to check their session for a problem that is
+ * not theirs. Retry-After says the honest thing: waiting is the fix.
+ */
+function unavailable() {
+  return Response.json(
+    { ok: false, message: "The diary is temporarily unavailable. Try again in a few minutes." },
+    { status: 503, headers: { "Retry-After": "300", "Cache-Control": "no-store" } }
+  );
+}
+
+/**
+ * Over the ceiling for this host.
+ *
+ * Names both numbers, because "too large" without the limit leaves the admin
+ * guessing how much to shave off. The second sentence only appears where the
+ * ceiling is the host's rather than ours -- that is the case where there is
+ * somewhere better to go.
+ */
+function tooLarge(size, uploads) {
+  const where = uploads.ephemeral
+    ? " Upload it from the machine that holds your originals instead."
+    : "";
+  return json(
+    {
+      ok: false,
+      message:
+        `That file is ${mb(size)} MB. This server accepts up to ` +
+        `${mb(uploads.maxBytes)} MB.${where}`,
+    },
+    413
+  );
+}
 
 function json(body, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });

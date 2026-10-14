@@ -2,11 +2,12 @@ import Link from "next/link";
 
 import { requireAdmin } from "@/lib/auth";
 import { getPages } from "@/lib/pages";
+import { getPageText } from "@/lib/page-text";
 import { coverage, searchPages } from "@/lib/search";
 import ActionForm from "@/components/ActionForm";
 import HighlightedLine from "@/components/HighlightedLine";
 import { requireDiary } from "@/lib/diaries";
-import { updateFirstLine } from "@/app/admin/actions";
+import { updateFirstLine, updatePageText } from "@/app/admin/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,10 @@ export default async function PageIndex({ params, searchParams }) {
   const pages = await getPages(diary.id);
   const { filled, total, blank } = coverage(pages);
 
+  // Keyed on contentId, the same identifier getPages() derives, so the two line
+  // up without the storage key ever reaching this component.
+  const textByPage = await getPageText(diary.id);
+
   // Blank-only wins over the query: a scan with no first line cannot match a
   // search, so combining them could only ever return nothing.
   const shown = blankOnly
@@ -35,8 +40,8 @@ export default async function PageIndex({ params, searchParams }) {
     <>
       <h2>Page index — {diary.title}</h2>
       <p className="admin__note">
-        The first line of each scan, used for searching. A spread covers two
-        pages &mdash; use the left-hand page and stay consistent.
+        The first line of each scan, and the text recognised from it. A spread
+        covers two pages &mdash; use the left-hand page and stay consistent.
       </p>
 
       <form className="pagesearch" method="get" action={`/admin/d/${diary.slug}/pages`}>
@@ -66,8 +71,9 @@ export default async function PageIndex({ params, searchParams }) {
         <strong>
           {filled} of {total}
         </strong>{" "}
-        scans have a first line. Only those can be found by search, here or
-        from the <Link href="/search">reader</Link>.
+        scans have a first line. A scan can also be found by its recognised
+        text, from the <Link href="/search">search page</Link> &mdash; run{" "}
+        <code>npm run ocr</code> to fill that in.
         {blankOnly && " Saving a line removes that scan from this list."}
       </p>
 
@@ -112,6 +118,41 @@ export default async function PageIndex({ params, searchParams }) {
                     className="admin__match"
                   />
                 )}
+
+                {/*
+                  Behind a disclosure, closed by default. A volume is dozens of
+                  scans and a page of recognised text is thousands of
+                  characters; rendering them all expanded would bury the first
+                  lines this page exists to edit. The summary carries enough to
+                  tell at a glance whether a page has text and roughly what it
+                  says.
+                */}
+                <details className="admin__text">
+                  <summary>
+                    {recognised(textByPage, page) ? (
+                      <>
+                        <span className="admin__source">
+                          {textByPage.get(page.contentId).source}
+                        </span>{" "}
+                        {preview(textByPage.get(page.contentId).text)}
+                      </>
+                    ) : (
+                      "No recognised text"
+                    )}
+                  </summary>
+                  <ActionForm action={updatePageText} className="admin__textform">
+                    <input type="hidden" name="diaryId" value={diary.id} />
+                    <input type="hidden" name="pageId" value={page.pageId} />
+                    <textarea
+                      name="pageText"
+                      rows={10}
+                      defaultValue={textByPage.get(page.contentId)?.text ?? ""}
+                      placeholder="Recognised text&hellip;"
+                      aria-label={`Recognised text for ${span}`}
+                    />
+                    <button type="submit">Save text</button>
+                  </ActionForm>
+                </details>
               </li>
             );
           })}
@@ -119,4 +160,21 @@ export default async function PageIndex({ params, searchParams }) {
       )}
     </>
   );
+}
+
+/** Does this scan have recognised text at all? */
+function recognised(textByPage, page) {
+  return textByPage.has(page.contentId);
+}
+
+/**
+ * Enough of the text to recognise the page from, on one line.
+ *
+ * Not firstLineOf(): that skips lines with nothing readable in them, which is
+ * right for a searchable summary and wrong here -- if recognition returned
+ * nothing but noise, this is the place you want to see it.
+ */
+function preview(text) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > 90 ? `${flat.slice(0, 90)}\u2026` : flat;
 }

@@ -75,6 +75,7 @@ Other commands:
 - `npm start` — serve the production build (run `build` first)
 - `npm run add` — preview adding new scans
 - `npm run add -- --commit` — add them
+- `npm run ocr -- --diary=N` — recognise the text on a volume's scans
 
 ## Tests
 
@@ -136,36 +137,76 @@ What does apply:
 - Hobby is **non-commercial personal use only**. Donations are explicitly fine;
   advertising, affiliate links as the point of the site, or being paid to host
   it are not.
-- Request *and response* bodies cap at **4.5 MB**, which is what stops the
-  uploader below.
+- Request *and response* bodies cap at **4.5 MB**, which is what sets the
+  upload ceiling below.
 - Cron jobs run at most **once a day** on Hobby, fired anywhere inside the
   scheduled hour. Not used here: the keep-alive already runs from GitHub Actions
   and from launchd.
 - A Hobby project cannot be connected to a repository owned by a GitHub
   **organisation**. A personal repository is fine.
 
-### Uploading is deliberately local
+### Uploading from the deployment
 
-**A deployment refuses to accept scans.** `src/lib/uploads.js` decides, and both
-upload routes and the upload page ask it. Three things break at once on
-serverless:
+Uploads work there, with a smaller ceiling. `src/lib/uploads.js` answers how
+large a request this host accepts, and the routes, the form and the upload page
+all read it:
 
-- the request body caps at 4.5 MB, against a `MAX_UPLOAD_BYTES` of 100 MB;
-- the plan step stages derived JPEGs in `os.tmpdir()` for the commit step to
-  collect, and a deployment's temp directory is per-instance — the two requests
-  need not reach the same one;
-- `saveMasters()` copies the full-resolution file into `images/`, and the source
-  tree is read-only.
+| | Ceiling | How it is detected |
+|---|---|---|
+| A laptop | `MAX_UPLOAD_BYTES`, 100 MB | the working directory is writable |
+| A deployment | `PLATFORM_MAX_UPLOAD_BYTES`, 4 MB | it is not |
 
-The last one settles it, because it fails *silently*: `saveMasters()` returns 0
-rather than throwing, and what reaches Storage is downscaled to `MAX_WIDTH`. A
-remote upload would therefore leave no full-resolution copy of the scan
-anywhere, and say nothing about it.
+4 MB rather than the 4.5 MB Vercel documents, so the refusal comes from us with
+somewhere to go, instead of as an opaque `413 FUNCTION_PAYLOAD_TOO_LARGE` after
+the whole file has been transferred. `UploadForm` checks the size before sending
+a byte, for the same reason.
 
-The test is whether the working directory is writable rather than which platform
-this is, so a read-only host refuses correctly even with nothing configured.
-`DIARY_UPLOADS=off` forces the refusal and `DIARY_UPLOADS=on` forces the
-attempt; both beat the inference.
+The test is whether the tree is writable rather than which platform this is, so
+any read-only host gets the smaller ceiling with nothing configured.
+`DIARY_UPLOADS=off` refuses outright and is the only value read; there is
+deliberately no `on`, because the ceiling is a property of the host and a flag
+claiming to lift it would only move the failure to the platform.
+
+Two things a deployment cannot promise, both stated on the upload page rather
+than left to be discovered:
+
+- **No full-resolution master.** `saveMasters()` writes into `images/`, which a
+  deployment does not have. Note this is equally true of a clone without an
+  `images/` directory — `saveMasters()` returns 0 rather than throwing — so a
+  deployment loses nothing that a laptop without that directory was keeping.
+- **Staging may not survive.** The plan step leaves derived JPEGs in
+  `os.tmpdir()` for the commit step. Fluid compute shares one instance across
+  invocations so this usually holds; when it does not, the commit route answers
+  `410 That upload has expired. Choose the file again.` A retry, not a loss.
+
+What does **not** change is permanence. A commit writes rows to Postgres and
+objects to Storage in the same Supabase project the local app uses, so a page
+added from the deployment is live for everyone immediately. Nothing about it is
+a preview, and the upload page says so — because the natural assumption is the
+opposite.
+
+### Two different body limits
+
+Worth keeping straight, because they are easy to confuse and only one of them is
+Vercel's:
+
+| | Limit | Where it applies |
+|---|---|---|
+| Next's `proxyClientMaxBodySize` | 10 MB, **silently truncating** | everywhere, including locally |
+| Vercel's function request body | 4.5 MB, `413` | the deployment only |
+
+The Next one is the subtler problem. `proxy` buffers every matched request body
+in memory and, past the limit, carries on with a partial body rather than
+failing — so an oversized upload surfaced as `VipsJpeg: premature end of JPEG
+image`, which sends you looking at the file rather than the limit. Measured by
+bisection against `next dev`: 9.32 MB decoded, 10.58 MB did not, and raising
+`proxyClientMaxBodySize` made the identical 10.58 MB file decode.
+
+`src/proxy.js` therefore excludes `/api/admin/upload` from its matcher, so those
+bodies are never buffered. Both routes already do their own `getCurrentUser()`
+and `isAdmin` checks — the proxy is a convenience redirect, not the security
+boundary — and they answer `503` during an outage themselves, which is what the
+proxy was doing for them before.
 
 Everything else in the admin section works from anywhere, because it is all
 small database writes: creating a volume, **setting its visibility**, reordering
@@ -677,11 +718,101 @@ the folded text and slices the **original** at those offsets. NFD turns `é` int
 two code points and would shift every offset after it, marking the wrong
 letters.
 
+A scan is found by its typed first line **or** by text recognised from the page
+(see below). Both go through the same `matchesQuery()`; recognition added a
+second place to look, not a second rule. A hit from the page body is labelled as
+such, because it is a machine's reading rather than a human's summary.
+
+The viewer's live filter stays first-line-only. It filters pages already in
+memory, and page text is deliberately kept out of that payload.
+
 Matching runs in the app, not in Postgres. `getPages()` already loads every
 row's metadata on every render, so filtering 14 rows is free, and one rule beats
 two that disagree — `ilike` folds case by its own collation and would not match
 the filter running in the browser. **Past a few thousand scans**, move this to
-`ilike` with a `pg_trgm` index and have the viewer's live filter call it.
+`ilike` with a `pg_trgm` index and have the viewer's live filter call it; full
+page text makes that threshold arrive sooner.
+
+## Recognising text
+
+Search only ever matched a **typed** first line, so of 49 scans exactly 2 could
+be found. `npm run ocr` is the supply side of that: it reads each scan and
+stores the text, which search then matches with the same rule as everything
+else.
+
+```bash
+npm run ocr -- --diary=5                  # what it would do, writes nothing
+npm run ocr -- --diary=5 --commit         # recognise with Tesseract and save
+npm run ocr -- --diary=1 --export=<dir>   # write the scans out to transcribe elsewhere
+npm run ocr -- --diary=1 --import=<file>  # save transcriptions made elsewhere
+```
+
+Preview by default and `--commit` to act, the same shape as `npm run add`.
+`--force` redoes pages that already have text.
+
+### Two engines, because handwriting is a different problem
+
+**Tesseract**, via `tesseract.js`, is local, free and private, and it is genuinely
+good at clean print: on a typeset page here it returns the text exactly, at 95%
+confidence. It is close to useless on cursive — and so are the cloud OCR
+services, which published comparisons put at roughly 45–63% on cursive
+narrative. A handwritten volume needs a vision model.
+
+`--export` / `--import` is that second route without this repository needing an
+API key or a new dependency: it writes the scans and a manifest to a directory,
+something that can read handwriting transcribes them, and the text comes back as
+
+```json
+{ "diaryId": 1, "pages": [{ "pageId": 1, "text": "..." }] }
+```
+
+The manifest means a transcriber only ever deals in page numbers; storage keys
+stay on the server. Importing a file whose `diaryId` does not match is refused,
+because every volume numbers its pages from 1 and the mistake would otherwise be
+silent.
+
+`tesseract.js` is a **devDependency**: only `scripts/` imports it, so it never
+reaches the deployed function bundle.
+
+### It reads the published scan, never the original
+
+`originals/` holds the scan as it was *before* redaction. Recognising from there
+would produce text containing exactly the words the censor bars exist to hide,
+and then make them searchable — a leak dressed up as a feature. The script reads
+`storage_key`, the published copy with the bars burned in, which is also the only
+object `/api/scan` will ever sign.
+
+Tested rather than assumed: a page whose scan carries a bar over a name
+recognises as `was Captain Wii`, and searching that name returns nothing.
+
+### Corrections are permanent
+
+Recognised text is editable per scan in **Admin → Page index**, behind a
+disclosure so dozens of pages of text do not bury the first lines. Saving marks
+the row `manual`, and the script skips anything marked `manual` **even with
+`--force`** — so correcting a page is permanent and re-running over a volume is
+always safe.
+
+A missing `first_line` is filled in from the recognised text; one that is
+already there is never overwritten, because a typed line is a person's summary
+of the page and outranks the top line of whatever an engine read.
+
+### Where the text lives, and why not on `pages`
+
+`page_text` is its own table keyed on **`storage_key`**, for two reasons that
+are both about not breaking something that already works:
+
+- `readSupabasePages()` reads with `select("*")` on purpose, so a column on
+  `pages` would be loaded on every render of every page of the reader, forever,
+  for text the reader never shows. A separate table is simply never touched by
+  that query — and nothing in the reader's module graph imports
+  `src/lib/page-text.js`, which is what keeps it that way.
+- `page_id` is rewritten wholesale by a reorder. Text keyed on the number would
+  silently reattach to the wrong scans the first time a volume was reordered;
+  `storage_key` is the identity that survives, as the reorder migration says.
+
+It is cheap. All 49 scans come to roughly 150 kB of text — about the size of one
+scan image — against a 500 MB free-tier database currently holding 11 MB.
 
 ## The scans
 

@@ -1,82 +1,106 @@
 /**
- * Whether this server can accept an upload at all.
+ * How large an upload this server can take, and what to say about it.
  *
- * The uploader is the one part of the admin section that cannot run on a
- * serverless deployment, and it fails three separate ways there:
+ * This used to be a yes/no gate that refused outright on a deployment. The
+ * argument for refusing was that saveMasters() writes the full-resolution file
+ * into images/ and a deployment's tree is read-only, so a remote upload would
+ * silently keep no master. That argument turned out not to apply: there is no
+ * images/ in this repository either, so saveMasters() already returns 0 locally
+ * and nothing is being kept in the first place. A deployment therefore loses
+ * nothing relative to uploading from a laptop, and refusing bought nothing.
  *
- *   - A Vercel function caps its request body at 4.5 MB. MAX_UPLOAD_BYTES is
- *     100 MB, and a scanned PDF is routinely past both.
- *   - The plan step stages derived JPEGs in os.tmpdir() for the commit step to
- *     pick up. A deployment's temp directory is per-instance, and the two
- *     requests need not land on the same one.
- *   - saveMasters() copies the full-resolution file into images/, and a
- *     deployment's source tree is read-only.
+ * What genuinely differs is the size of the request a host will accept, so that
+ * is what this module answers now.
  *
- * Any one of those is fatal on its own, so the honest answer is to refuse and
- * say where to upload instead. Half-working would be worse than refusing: the
- * third failure is silent -- saveMasters() returns 0 rather than throwing --
- * and what reaches Storage is capped at MAX_WIDTH, so a remote upload would
- * quietly leave no full-resolution copy of the scan anywhere.
+ *   writable tree   MAX_UPLOAD_BYTES -- a laptop, where the originals live
+ *   read-only tree  PLATFORM_MAX_UPLOAD_BYTES -- a serverless deployment
  *
- * Everything else under /admin is small database writes and is unaffected:
- * creating a volume, setting its visibility, reordering, first lines, people.
+ * Two things a deployment still cannot promise, both said out loud on the
+ * upload page rather than discovered:
+ *
+ *   - The plan and commit steps are separate requests, and the derived JPEGs
+ *     wait between them in os.tmpdir(). Fluid compute shares one instance
+ *     across invocations so this usually survives; when it does not, the commit
+ *     route already answers "That upload has expired. Choose the file again."
+ *     That is a retry, not a loss.
+ *   - No full-resolution master is kept. Same as here, today.
+ *
+ * What a deployment does NOT change is permanence. A commit writes rows to
+ * Postgres and objects to Storage in the same shared Supabase project the local
+ * app uses, so a page added from the deployment is live for everyone
+ * immediately. Nothing about it is a preview.
  */
 
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import path from "node:path";
 
+import { MAX_UPLOAD_BYTES } from "./ingest.js";
+
 /**
  * Where the full-resolution masters live, when there is anywhere to put them.
  *
- * One definition, in the module that decides whether it can be written to at
- * all. api/scan keeps its own: that one is about serving bytes off disk in
- * local mode, which is a different question about the same directory.
+ * One definition, in the module that decides what this host can do with it.
+ * api/scan keeps its own: that one is about serving bytes off disk in local
+ * mode, which is a different question about the same directory.
  */
 export const SCANS_DIR = path.join(process.cwd(), "images");
 
 /**
- * The reasons, as the admin will read them.
+ * The ceiling on a host that cannot take a large request.
  *
- * Phrased around what to do rather than what went wrong, because nothing has
- * gone wrong -- this is simply the wrong machine to be doing it from.
+ * Vercel documents 4.5 MB as the maximum request body for a function, answering
+ * 413 FUNCTION_PAYLOAD_TOO_LARGE above it. We advertise and enforce 4 MB so the
+ * refusal comes from us, with a message that says where to upload instead,
+ * rather than from the platform after the whole file has been sent.
+ *
+ * Not named for Vercel. Any serverless host has a limit of this kind, and the
+ * read-only tree is what we actually detect.
  */
-const WHERE_INSTEAD = "Add scans from the machine that holds your originals.";
+export const PLATFORM_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
-export const UPLOADS_OFF = `Uploading is switched off on this server. ${WHERE_INSTEAD}`;
+/** One decimal place of megabytes, so every message agrees on the number. */
+export const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
 
-export const UPLOADS_READ_ONLY =
-  "This server's files are read-only, so the full-resolution master of a scan " +
-  `would have nowhere to go. ${WHERE_INSTEAD}`;
+export const UPLOADS_OFF =
+  "Uploading is switched off on this server. Add scans from the machine that " +
+  "holds your originals.";
 
 /**
- * The decision, with the inputs handed in.
+ * The limits, with the inputs handed in.
  *
- * Pure, so the three branches are testable without a read-only directory or a
- * mutated environment -- the same split as canSee() in diary-rules.js.
+ * Pure, so its branches are testable without a read-only directory or a mutated
+ * environment -- the same split as canSee() in diary-rules.js.
  *
- * `setting` is DIARY_UPLOADS, and it wins in both directions. Explicit beats
- * inferred, in the spirit of DIARY_SOURCE in pages.js: no silent fallback, and
- * an escape hatch for anyone who means it.
+ * `setting` is DIARY_UPLOADS, and "off" is the only value it reads. There is
+ * deliberately no "on": the smaller ceiling is a property of the host, not a
+ * policy, and a flag that claimed to lift it would only move the failure to the
+ * platform's opaque 413.
  */
-export function uploadVerdict({ setting, treeWritable }) {
-  if (setting === "off") return { enabled: false, reason: UPLOADS_OFF };
-  if (setting === "on") return { enabled: true };
-  return treeWritable ? { enabled: true } : { enabled: false, reason: UPLOADS_READ_ONLY };
+export function uploadLimits({ setting, treeWritable }) {
+  const maxBytes = treeWritable ? MAX_UPLOAD_BYTES : PLATFORM_MAX_UPLOAD_BYTES;
+
+  // `ephemeral` is what the upload page keys its caveats on: no master kept,
+  // and a staging directory that may not survive to the commit request.
+  const ephemeral = !treeWritable;
+
+  if (setting === "off") {
+    return { enabled: false, maxBytes, ephemeral, reason: UPLOADS_OFF };
+  }
+  return { enabled: true, maxBytes, ephemeral };
 }
 
 /**
  * Ask about this server.
  *
  * A writable working directory is the test, rather than the name of a platform,
- * because it is the capability the third failure above actually needs -- and it
- * is false on any host serving this from a read-only tree, not just on the one
- * we happen to have deployed to. So a deployment refuses correctly even when
- * DIARY_UPLOADS was never set.
+ * because it is the capability that actually differs -- and it is false on any
+ * host serving this from a read-only tree, not just on the one we happen to
+ * have deployed to.
  *
  * Deliberately not cached. It runs at most twice per upload, against the local
- * filesystem, which is nothing beside rasterising a PDF -- and a cached "no"
- * would outlive the chmod that fixed it.
+ * filesystem, which is nothing beside rasterising a PDF -- and a cached answer
+ * would outlive the chmod that changed it.
  */
 export async function uploadCapability() {
   let treeWritable = false;
@@ -87,9 +111,8 @@ export async function uploadCapability() {
     // Read-only tree, which is the answer rather than an error.
   }
 
-  return uploadVerdict({ setting: process.env.DIARY_UPLOADS, treeWritable });
+  return uploadLimits({ setting: process.env.DIARY_UPLOADS, treeWritable });
 }
-
 
 /**
  * Is there anywhere for the master to go?

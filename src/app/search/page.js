@@ -4,7 +4,8 @@ import HighlightedLine from "@/components/HighlightedLine";
 import { requireUser } from "@/lib/auth";
 import { getDiaries } from "@/lib/diaries";
 import { getPages } from "@/lib/pages";
-import { coverage, searchPages } from "@/lib/search";
+import { getPageText } from "@/lib/page-text";
+import { matchesQuery, matchingLine, searchPagesWithText } from "@/lib/search";
 
 export const dynamic = "force-dynamic";
 
@@ -32,14 +33,23 @@ export default async function SearchPage({ searchParams }) {
   const perDiary = await Promise.all(
     diaries.map(async (diary) => {
       const pages = await getPages(diary.id);
-      return { diary, pages, matches: searchPages(pages, query) };
+      // Loaded here and nowhere else. getPages() runs on every render of the
+      // reader; this is a second read on the one page that actually searches.
+      const textByPage = await getPageText(diary.id);
+      return { diary, pages, textByPage, matches: searchPagesWithText(pages, textByPage, query) };
     })
   );
 
   const matched = perDiary.filter((entry) => entry.matches.length > 0);
   const total = matched.reduce((n, entry) => n + entry.matches.length, 0);
 
-  const filled = perDiary.reduce((n, e) => n + coverage(e.pages).filled, 0);
+  // Searchable means findable by either route now, so counting first lines
+  // alone would badly understate it -- a volume can be fully searchable with
+  // not one first line typed.
+  const findable = perDiary.reduce(
+    (n, e) => n + e.pages.filter((p) => p.firstLine || e.textByPage.has(p.contentId)).length,
+    0
+  );
   const allPages = perDiary.reduce((n, e) => n + e.pages.length, 0);
   const searched = query.trim() !== "";
 
@@ -49,25 +59,26 @@ export default async function SearchPage({ searchParams }) {
 
       <form className="searchpage__form" method="get" action="/search">
         <label className="searchpage__label" htmlFor="q">
-          First line contains
+          Page contains
         </label>
         <input
           id="q"
           name="q"
           type="search"
           defaultValue={query}
-          placeholder="a word from the first line&hellip;"
+          placeholder="a word from anywhere on the page&hellip;"
           autoComplete="off"
         />
         <button type="submit">Search</button>
       </form>
 
       <p className="admin__note">
-        {filled} of {allPages} scans have a first line. Only those can be found
+        {findable} of {allPages} scans can be found &mdash; by a typed first
+        line, or by text recognised from the page itself
         {user.isAdmin ? (
           <>
-            ; the rest are typed in from each diary&rsquo;s{" "}
-            <Link href="/admin">page index</Link>.
+            . Run <code>npm run ocr</code> to recognise more, and correct it
+            from each diary&rsquo;s <Link href="/admin">page index</Link>.
           </>
         ) : (
           "."
@@ -87,7 +98,7 @@ export default async function SearchPage({ searchParams }) {
             {matched.length > 1 && ` across ${matched.length} diaries`}
           </p>
 
-          {matched.map(({ diary, matches }) => (
+          {matched.map(({ diary, matches, textByPage }) => (
             <section key={diary.id} className="searchpage__group">
               {/* Grouped by volume, and only labelled when there is more than
                   one -- a heading over the single group you already know you
@@ -104,6 +115,7 @@ export default async function SearchPage({ searchParams }) {
                     page.pageCount === 1
                       ? `Page ${page.pageId}`
                       : `Pages ${page.pageId}–${page.pageId + page.pageCount - 1}`;
+                  const excerpt = excerptFor(page, textByPage.get(page.contentId)?.text, query);
                   return (
                     <li key={page.contentId} className="searchpage__row">
                       {/* Opens that diary, already turned to this page. */}
@@ -122,7 +134,15 @@ export default async function SearchPage({ searchParams }) {
                         />
                         <span className="searchpage__meta">
                           <span className="order__span">{span}</span>
-                          <HighlightedLine text={page.firstLine} query={query} />
+                          <HighlightedLine text={excerpt.text} query={query} />
+                          {/* Said only when the hit came from the page body.
+                              A first-line hit is the thing the line is for and
+                              needs no label; a body hit is a quotation from
+                              recognised text, which can be wrong, and the
+                              reader deserves to know which they are reading. */}
+                          {excerpt.fromText && (
+                            <span className="searchpage__from">from the page</span>
+                          )}
                         </span>
                       </Link>
                     </li>
@@ -135,4 +155,26 @@ export default async function SearchPage({ searchParams }) {
       )}
     </section>
   );
+}
+
+
+/**
+ * What to show as the hit: the first line, or the line of the page that matched.
+ *
+ * The first line wins when it matches, because it is the curated summary and is
+ * the one text here that a human wrote. Otherwise the match is somewhere in the
+ * body, and showing the first line instead would present a result with no
+ * visible reason for being one.
+ */
+function excerptFor(page, text, query) {
+  if (matchesQuery(page.firstLine, query)) {
+    return { text: page.firstLine, fromText: false };
+  }
+  const line = matchingLine(text, query);
+  if (line) return { text: line, fromText: true };
+
+  // Matched the page as a whole but no single line carries a term -- possible
+  // with an accent or a hyphen split across lines. Fall back to something
+  // rather than an empty row.
+  return { text: page.firstLine ?? "", fromText: Boolean(text) };
 }
