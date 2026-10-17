@@ -1,5 +1,9 @@
 # Bookshelf
 
+Live at **<https://diary-website-khaki.vercel.app>**. `Quar Rules` is open to
+anyone; the handwritten volume is not — that is the visibility system below
+doing its job, not a broken link.
+
 A shelf of scanned volumes, read as books — a real page-turn, two pages to a
 spread — with the tools to run the archive behind it: upload scans or whole
 PDFs, rotate and crop them, black out what should stay private, reorder pages,
@@ -926,3 +930,9 @@ too, since they hold the contents of whatever you were editing.
 
 This app is not statically exported, so it needs a host that runs Node (Vercel,
 or similar). GitHub Pages serves static files only and can't host it.
+
+## Licence
+
+MIT, in [LICENSE](LICENSE). It covers the code, which is all this repository
+holds. The scans and their transcriptions are not here and are not licensed by
+it — they live in a private Supabase project and stay there.
