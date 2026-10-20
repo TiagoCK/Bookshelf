@@ -68,7 +68,7 @@ export default async function Shelf() {
 
   return (
     <section className="shelf">
-      <h2>Diaries</h2>
+      <h2>Volumes</h2>
 
       <ul className="shelf__list">
         {shelf.map(({ diary, cover, pages }) => (

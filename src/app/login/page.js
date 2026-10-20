@@ -47,7 +47,7 @@ function LoginForm() {
        */
       setError(
         isOutage(signInError)
-          ? "The diary is temporarily unavailable. Nothing is wrong with your password -- try again in a few minutes."
+          ? "Bookshelf is temporarily unavailable. Nothing is wrong with your password -- try again in a few minutes."
           : "That email and password combination didn't work."
       );
       setBusy(false);

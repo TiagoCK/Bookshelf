@@ -30,15 +30,15 @@ export default async function AdminIndex() {
 
   return (
     <>
-      <h2>Diaries</h2>
+      <h2>Volumes</h2>
       <p className="admin__note">
-        Page index, order, upload and the image editor all belong to one diary.
+        Page index, order, upload and the image editor all belong to one volume.
         Choose which.
       </p>
 
       {shelf.length === 0 && (
         <p className="admin__note">
-          No diaries yet. Create the first one below.
+          No volumes yet. Create the first one below.
         </p>
       )}
 
@@ -102,7 +102,7 @@ export default async function AdminIndex() {
       </ul>
 
       <section className="newdiary">
-        <h3>New diary</h3>
+        <h3>New volume</h3>
         <p className="admin__note">
           The address is derived from the title unless you set one. It becomes
           the URL, so it is worth keeping short.

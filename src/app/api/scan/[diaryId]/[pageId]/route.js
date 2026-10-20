@@ -156,7 +156,7 @@ function upstreamError() {
  * cannot keep serving the outage after the project comes back.
  */
 function unavailable() {
-  return new Response("The diary is temporarily unavailable", {
+  return new Response("Bookshelf is temporarily unavailable", {
     status: 503,
     headers: { "Retry-After": "300", "Cache-Control": "no-store" },
   });

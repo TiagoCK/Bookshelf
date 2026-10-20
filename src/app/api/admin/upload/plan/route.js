@@ -221,7 +221,7 @@ async function thumbnail(jpeg) {
  */
 function unavailable() {
   return Response.json(
-    { ok: false, message: "The diary is temporarily unavailable. Try again in a few minutes." },
+    { ok: false, message: "Bookshelf is temporarily unavailable. Try again in a few minutes." },
     { status: 503, headers: { "Retry-After": "300", "Cache-Control": "no-store" } }
   );
 }

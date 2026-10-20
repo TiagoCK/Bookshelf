@@ -30,7 +30,7 @@ export async function updateFirstLine(_prevState, formData) {
   // the same-numbered page of a different volume.
   const diaryId = Number(formData.get("diaryId"));
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
 
   const raw = (formData.get("firstLine") ?? "").toString().trim();
@@ -68,7 +68,7 @@ export async function updatePageText(_prevState, formData) {
   const pageId = Number(formData.get("pageId"));
   const diaryId = Number(formData.get("diaryId"));
   if (!Number.isInteger(pageId) || pageId < 1) return { ok: false, message: "Invalid page." };
-  if (!Number.isInteger(diaryId) || diaryId < 1) return { ok: false, message: "Invalid diary." };
+  if (!Number.isInteger(diaryId) || diaryId < 1) return { ok: false, message: "Invalid volume." };
 
   const text = (formData.get("pageText") ?? "").toString().trim();
 
@@ -144,7 +144,7 @@ export async function createDiary(_prevState, formData) {
   await requireAdmin();
 
   if (DIARY_SOURCE === "local") {
-    return { ok: false, message: "Local mode has no database to create a diary in." };
+    return { ok: false, message: "Local mode has no database to create a volume in." };
   }
 
   const prepared = prepareDiary({
@@ -209,7 +209,7 @@ export async function deleteDiary(_prevState, formData) {
 
   const diaryId = Number(formData.get("diaryId"));
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
 
   const db = getSupabase();
@@ -225,7 +225,7 @@ export async function deleteDiary(_prevState, formData) {
     // send someone looking for a discrepancy that is not there.
     return {
       ok: false,
-      message: `That diary still has ${count} scan${count === 1 ? "" : "s"}. Remove them first.`,
+      message: `That volume still has ${count} scan${count === 1 ? "" : "s"}. Remove them first.`,
     };
   }
 
@@ -234,7 +234,7 @@ export async function deleteDiary(_prevState, formData) {
 
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");
-  return { ok: true, message: "Diary removed." };
+  return { ok: true, message: "Volume removed." };
 }
 
 /**
@@ -249,7 +249,7 @@ export async function setDiaryVisibility(_prevState, formData) {
 
   const diaryId = Number(formData.get("diaryId"));
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
 
   // normaliseVisibility falls back to "readers" for anything unrecognised, so a
@@ -266,7 +266,7 @@ export async function setDiaryVisibility(_prevState, formData) {
     .maybeSingle();
 
   if (error) return { ok: false, message: error.message };
-  if (!data) return { ok: false, message: "No such diary." };
+  if (!data) return { ok: false, message: "No such volume." };
 
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");

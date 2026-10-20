@@ -35,7 +35,7 @@ export default async function ImageEditorIndex({ params }) {
       <h2>Image Editor — {diary.title}</h2>
       <p className="admin__note">
         Browse to a scan and choose Edit to rotate or crop it. Saving overwrites the
-        image the diary serves; the scan as originally uploaded is kept so a change
+        image the volume serves; the scan as originally uploaded is kept so a change
         can be undone.
       </p>
 

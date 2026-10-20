@@ -23,7 +23,7 @@ export default function AdminNav() {
   const slug = pathname.match(/^\/admin\/d\/([^/]+)/)?.[1] ?? null;
 
   const tabs = [
-    { href: "/admin", label: slug ? "← All diaries" : "Diaries" },
+    { href: "/admin", label: slug ? "← All volumes" : "Volumes" },
     ...(slug
       ? DIARY_TABS.map((tab) => ({
           href: `/admin/d/${slug}/${tab.segment}`,

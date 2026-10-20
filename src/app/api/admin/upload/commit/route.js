@@ -56,7 +56,7 @@ export async function POST(request) {
   // a page 1 without colliding in the bucket.
   const diaryId = Number(rawDiaryId);
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return json({ ok: false, message: "Invalid diary." }, 400);
+    return json({ ok: false, message: "Invalid volume." }, 400);
   }
 
   let plan;
@@ -281,7 +281,7 @@ async function freeName(name) {
  */
 function unavailable() {
   return Response.json(
-    { ok: false, message: "The diary is temporarily unavailable. Try again in a few minutes." },
+    { ok: false, message: "Bookshelf is temporarily unavailable. Try again in a few minutes." },
     { status: 503, headers: { "Retry-After": "300", "Cache-Control": "no-store" } }
   );
 }

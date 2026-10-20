@@ -78,7 +78,7 @@ export default async function SearchPage({ searchParams }) {
         {user.isAdmin ? (
           <>
             . Run <code>npm run ocr</code> to recognise more, and correct it
-            from each diary&rsquo;s <Link href="/admin">page index</Link>.
+            from each volume&rsquo;s <Link href="/admin">page index</Link>.
           </>
         ) : (
           "."
@@ -95,7 +95,7 @@ export default async function SearchPage({ searchParams }) {
         <>
           <p className="searchpage__count">
             {total} {total === 1 ? "match" : "matches"}
-            {matched.length > 1 && ` across ${matched.length} diaries`}
+            {matched.length > 1 && ` across ${matched.length} volumes`}
           </p>
 
           {matched.map(({ diary, matches, textByPage }) => (
