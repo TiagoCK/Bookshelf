@@ -41,7 +41,7 @@ export async function movePage(_prevState, formData) {
 
   const diaryId = Number(formData.get("diaryId"));
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
 
   const pageId = Number(formData.get("pageId"));
@@ -64,7 +64,7 @@ export async function movePage(_prevState, formData) {
   if (found.kind === "out-of-range") {
     return {
       ok: false,
-      message: `Page ${target} is outside the diary, which runs 1–${found.max}.`,
+      message: `Page ${target} is outside the volume, which runs 1–${found.max}.`,
     };
   }
 

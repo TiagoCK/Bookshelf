@@ -543,7 +543,7 @@ export default function BookViewer({
       // who already typed something inside it.
       setJumpError(
         numeric && Number(raw) >= 1 && Number(raw) <= totalPages
-          ? `There is no page ${raw} in this diary.`
+          ? `There is no page ${raw} in this volume.`
           : `Pages run 1–${totalPages}.`
       );
       return;

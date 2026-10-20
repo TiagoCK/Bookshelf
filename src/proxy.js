@@ -138,7 +138,7 @@ export async function proxy(request) {
  * says the honest thing, which is that waiting is the fix.
  */
 function unavailable() {
-  return new NextResponse("The diary is temporarily unavailable", {
+  return new NextResponse("Bookshelf is temporarily unavailable", {
     status: 503,
     headers: { "Retry-After": "300", "Cache-Control": "no-store" },
   });

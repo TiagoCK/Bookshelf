@@ -45,8 +45,8 @@ export default async function UploadPage({ params }) {
     <>
       <h2>Upload — {diary.title}</h2>
       <p className="admin__note">
-        Adds scans to the <strong>end</strong> of the diary, the same as{" "}
-        <code>npm run add</code>. A PDF becomes one diary page per PDF page, in
+        Adds scans to the <strong>end</strong> of the volume, the same as{" "}
+        <code>npm run add</code>. A PDF becomes one page per PDF page, in
         order. Pages are stored as JPEG at up to {MAX_WIDTH}px wide
         {keepsMasters ? (
           <>

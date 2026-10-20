@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 export default function Paused() {
   return (
     <section className="paused">
-      <h2>The diary is temporarily unavailable</h2>
+      <h2>Bookshelf is temporarily unavailable</h2>
 
       <p>
         It cannot be reached at the moment. This is usually brief, and nothing is

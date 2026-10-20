@@ -160,7 +160,7 @@ export async function saveImageEdit({ diaryId: diaryIdRaw, pageId, rotation, cro
 
   const diaryId = Number(diaryIdRaw);
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
   if (!ROTATIONS.includes(rotation)) return { ok: false, message: "Invalid rotation." };
 
@@ -211,7 +211,7 @@ export async function setRedactionBoxes({ diaryId: diaryIdRaw, pageId, boxes }) 
 
   const diaryId = Number(diaryIdRaw);
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
   if (!Array.isArray(boxes)) return { ok: false, message: "Invalid bars." };
   if (boxes.length > MAX_BARS) {
@@ -256,7 +256,7 @@ export async function revertImage({ diaryId: diaryIdRaw, pageId }) {
 
   const diaryId = Number(diaryIdRaw);
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
 
   const row = await loadRow(diaryId, id);
@@ -305,7 +305,7 @@ export async function deletePage({ diaryId: diaryIdRaw, pageId, confirm }) {
 
   const diaryId = Number(diaryIdRaw);
   if (!Number.isInteger(diaryId) || diaryId < 1) {
-    return { ok: false, message: "Invalid diary." };
+    return { ok: false, message: "Invalid volume." };
   }
   if (confirm !== true) return { ok: false, message: "Not confirmed." };
 
@@ -338,7 +338,7 @@ export async function deletePage({ diaryId: diaryIdRaw, pageId, confirm }) {
     ok: true,
     lastPage,
     message:
-      `Removed ${span}. The diary now ends at page ${lastPage}.` +
+      `Removed ${span}. The volume now ends at page ${lastPage}.` +
       (storageError
         ? ` The stored image could not be deleted (${storageError.message}); the page is gone but the file remains.`
         : ""),
