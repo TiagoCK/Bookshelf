@@ -10,7 +10,7 @@
  * Filtering happens in the app rather than in Postgres because getPages()
  * already loads every row's metadata on every render. Doing it in SQL would
  * mean two matching rules -- ilike folds case by its own collation and would
- * quietly disagree with the filter running in the browser. See the README for
+ * quietly disagree with the filter running in the browser. See docs/design.md for
  * the point at which that trade stops being worth it.
  */
 
